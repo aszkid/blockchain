@@ -1,6 +1,7 @@
 extern crate rand;
 extern crate sha2;
 extern crate ed25519_dalek;
+extern crate base64;
 
 use std::fs;
 use std::fs::File;
@@ -8,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::env;
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
-use ed25519_dalek::Keypair;
+use ed25519_dalek::{Keypair, Signature};
 use rand::OsRng;
 
 
@@ -109,8 +110,10 @@ fn main() {
         keypair
     );
 
-    println!("Using account `{}`...", account.name);
-
+    println!("Using account `{}` with public key `{}`...",
+        account.name,
+        base64::encode(&account.keypair.public.to_bytes()[..])
+    );
     
     let listener: TcpListener;
     let mut port = 7878;

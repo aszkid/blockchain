@@ -2,6 +2,12 @@ extern crate rand;
 extern crate sha2;
 extern crate ed25519_dalek;
 extern crate base64;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+extern crate rmp_serde as rmps;
+#[macro_use]
+extern crate shrinkwraprs;
 
 use std::fs;
 use std::fs::File;
@@ -11,6 +17,69 @@ use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
 use ed25519_dalek::{Keypair, Signature};
 use rand::OsRng;
+
+
+// Little hack to allow painless implementation of
+// serde's Serialize and Deserialize traits on ed25519_dalek's PublicKey
+//
+#[derive(Shrinkwrap)]
+struct PublicKey(ed25519_dalek::PublicKey);
+
+impl serde::Serialize for PublicKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(&self.to_bytes())
+    }
+}
+
+struct Output {
+    // Amount of currency units to send
+    //
+    amount: u64,
+    // Destination public key
+    //
+    creditor: PublicKey,
+}
+
+struct Input {
+    // Hash of a transaction
+    //
+    tx: [u8; 64],
+    // Index of output referenced in the transaction
+    //
+    index: u8
+}
+
+struct Transaction {
+    // Source public key
+    //
+    debtor: PublicKey,
+    // List of tx inputs
+    //
+    inputs: Vec<Input>,
+    // List of tx outputs
+    //
+    outputs: Vec<Output>,
+}
+
+
+impl Transaction {
+
+}
+
+struct Block {
+    // 32-byte SHA-256 hash of the previous block
+    //
+    prev_hash: [u8; 32],
+    // Nonce used to verify signature
+    //
+    nonce: u64,
+    // Signature
+    //
+    signature: Signature
+}
 
 
 struct Account {
@@ -114,6 +183,9 @@ fn main() {
         account.name,
         base64::encode(&account.keypair.public.to_bytes()[..])
     );
+
+    let mut buf = Vec::new();
+    account.keypair.public.serialize(&mut rmps::Serializer::new(&mut buf)).unwrap();
     
     let listener: TcpListener;
     let mut port = 7878;

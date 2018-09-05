@@ -35,7 +35,7 @@ impl Serialize for PublicKey {
     }
 }
 
-
+#[derive(Serialize)]
 struct Output {
     // Amount of currency units to send
     //
@@ -45,10 +45,25 @@ struct Output {
     creditor: PublicKey,
 }
 
+
+#[derive(Shrinkwrap)]
+struct TxHash([u8; 64]);
+
+impl Serialize for TxHash {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
+#[derive(Serialize)]
 struct Input {
     // Hash of a transaction
+    // TODO: check if serde is using `serialize_bytes` for this field
     //
-    tx: [u8; 64],
+    tx: TxHash,
     // Index of output referenced in the transaction
     //
     index: u8
@@ -68,7 +83,9 @@ struct Transaction {
 
 
 impl Transaction {
-
+    fn hash(&self) -> TxHash {
+        TxHash([0; 64])
+    }
 }
 
 struct Block {
@@ -193,7 +210,18 @@ fn main() {
         base64::encode(&account.public_key().to_bytes()[..])
     );
 
+    // Work buffer
+    //
     let mut buf = Vec::new();
+
+    // Test output
+    //
+    let out = Output { amount: 879, creditor: account.public_key() };
+    out.serialize(&mut rmps::Serializer::new(&mut buf)).unwrap();
+    println!("Output serialized: {:?}", base64::encode(&buf));
+
+    // Test public key
+    //
     account.public_key().serialize(&mut rmps::Serializer::new(&mut buf)).unwrap();
     println!("Serialized public key: {:?}", base64::encode(&buf));
     

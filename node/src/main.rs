@@ -15,8 +15,9 @@ use std::path::{Path, PathBuf};
 use std::env;
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
-use ed25519_dalek::{Keypair, Signature};
+use ed25519_dalek::{SecretKey, Signature};
 use rand::OsRng;
+use serde::{Serialize};
 
 
 // Little hack to allow painless implementation of
@@ -25,7 +26,7 @@ use rand::OsRng;
 #[derive(Shrinkwrap)]
 struct PublicKey(ed25519_dalek::PublicKey);
 
-impl serde::Serialize for PublicKey {
+impl Serialize for PublicKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -33,6 +34,7 @@ impl serde::Serialize for PublicKey {
         serializer.serialize_bytes(&self.to_bytes())
     }
 }
+
 
 struct Output {
     // Amount of currency units to send
@@ -82,31 +84,34 @@ struct Block {
 }
 
 
+// Owned account; not the same thing as a random
+// 'account' in the network
+//
 struct Account {
     name: String,
-    keypair: Keypair
+    secret: SecretKey
 }
 
 impl Account {
-    fn from_bytes(name: String, buf: &[u8; 64]) -> Account {
+    fn from_bytes(name: String, buf: &[u8; 32]) -> Account {
         Account {
             name: name,
-            keypair: match Keypair::from_bytes(buf) {
+            secret: match SecretKey::from_bytes(buf) {
                 Ok(kp) => kp,
-                Err(_) => panic!("Keypair data is malformed!")
+                Err(_) => panic!("Secret key data is malformed!")
             }
         }
     }
 
     fn to_file(&self, path: PathBuf)  {
         let mut f = File::create(&path).unwrap();
-        match f.write(&self.keypair.to_bytes()) {
+        match f.write(&self.secret.to_bytes()) {
             Ok(num) => {
-                if num != 64 {
-                    panic!("Could not save all 64 bytes of the keypair file `{}`!", path.display());
+                if num != 32 {
+                    panic!("Could not save all 32 bytes of the secret key into `{}`!", path.display());
                 }
             },
-            _ => panic!("Failed to write keypair file `{}`!", path.display())
+            _ => panic!("Failed to write secret key `{}`!", path.display())
         };
     }
 
@@ -117,32 +122,36 @@ impl Account {
         //
         match File::open(&path) {
             Ok(mut f) => {
-                let mut buf: [u8; 64] = [0; 64];
+                let mut buf: [u8; 32] = [0; 32];
                 match f.read(&mut buf) {
                     Ok(num) => {
-                        if num != 64 {
-                            panic!("Keypair file `{}` is not 64 bytes!", path.display());
+                        if num != 32 {
+                            panic!("Could not read 32 bytes from `{}`!", path.display());
                         }
 
                         Account::from_bytes(name, &buf)
                     },
                     Err(_) => {
-                        panic!("Could not read keypair file `{}`!", path.display());
+                        panic!("Could not read secret key file `{}`!", path.display());
                     }
                 }
             },
             _ => {
-                println!("Keypair file `{}` does not exist, generating...", path.display());
+                println!("Secret key file `{}` does not exist, generating...", path.display());
 
                 let mut csprng: OsRng = OsRng::new().unwrap();
                 let acct = Account {
                     name: name,
-                    keypair: Keypair::generate::<sha2::Sha512, _>(&mut csprng)
+                    secret: SecretKey::generate(&mut csprng)
                 };
                 acct.to_file(path);
                 acct
             }
         }
+    }
+
+    fn public_key(&self) -> PublicKey {
+        PublicKey(ed25519_dalek::PublicKey::from_secret::<sha2::Sha512>(&self.secret))
     }
 
 }
@@ -167,25 +176,26 @@ fn main() {
     };
 
 
-    // Set keypair file
+    // Set secret key file
     //
-    let mut keypair = Path::new(root).join(&args[2]);
-    keypair.set_extension("keypair");
+    let mut secret = Path::new(root).join(&args[2]);
+    secret.set_extension("keypair");
 
     // Open or generate new account
     //
     let account = Account::from_file(
         args[2].clone(),
-        keypair
+        secret
     );
 
     println!("Using account `{}` with public key `{}`...",
         account.name,
-        base64::encode(&account.keypair.public.to_bytes()[..])
+        base64::encode(&account.public_key().to_bytes()[..])
     );
 
     let mut buf = Vec::new();
-    account.keypair.public.serialize(&mut rmps::Serializer::new(&mut buf)).unwrap();
+    account.public_key().serialize(&mut rmps::Serializer::new(&mut buf)).unwrap();
+    println!("Serialized public key: {:?}", base64::encode(&buf));
     
     let listener: TcpListener;
     let mut port = 7878;

@@ -15,9 +15,14 @@ use std::path::{Path, PathBuf};
 use std::env;
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
-use ed25519_dalek::{SecretKey, Signature};
+use ed25519_dalek::{SECRET_KEY_LENGTH, PUBLIC_KEY_LENGTH, SecretKey, Signature};
 use rand::OsRng;
 use serde::{Serialize};
+
+
+// We use SHA-512 for most hashing purposes
+//
+const HASH_LENGTH: usize = 64;
 
 
 // Little hack to allow painless implementation of
@@ -47,7 +52,7 @@ struct Output {
 
 
 #[derive(Shrinkwrap)]
-struct TxHash([u8; 64]);
+struct TxHash([u8; HASH_LENGTH]);
 
 impl Serialize for TxHash {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -60,8 +65,7 @@ impl Serialize for TxHash {
 
 #[derive(Serialize)]
 struct Input {
-    // Hash of a transaction
-    // TODO: check if serde is using `serialize_bytes` for this field
+    // Hash of the referenced transaction
     //
     tx: TxHash,
     // Index of output referenced in the transaction
@@ -69,6 +73,7 @@ struct Input {
     index: u8
 }
 
+#[derive(Serialize)]
 struct Transaction {
     // Source public key
     //
@@ -84,14 +89,14 @@ struct Transaction {
 
 impl Transaction {
     fn hash(&self) -> TxHash {
-        TxHash([0; 64])
+        TxHash([0; HASH_LENGTH])
     }
 }
 
 struct Block {
-    // 32-byte SHA-256 hash of the previous block
+    // Hash of the previous block
     //
-    prev_hash: [u8; 32],
+    prev_hash: TxHash,
     // Nonce used to verify signature
     //
     nonce: u64,
@@ -110,7 +115,7 @@ struct Account {
 }
 
 impl Account {
-    fn from_bytes(name: String, buf: &[u8; 32]) -> Account {
+    fn from_bytes(name: String, buf: &[u8; SECRET_KEY_LENGTH]) -> Account {
         Account {
             name: name,
             secret: match SecretKey::from_bytes(buf) {
@@ -124,8 +129,8 @@ impl Account {
         let mut f = File::create(&path).unwrap();
         match f.write(&self.secret.to_bytes()) {
             Ok(num) => {
-                if num != 32 {
-                    panic!("Could not save all 32 bytes of the secret key into `{}`!", path.display());
+                if num != SECRET_KEY_LENGTH {
+                    panic!("Could not save all {} bytes of the secret key into `{}`!", SECRET_KEY_LENGTH, path.display());
                 }
             },
             _ => panic!("Failed to write secret key `{}`!", path.display())
@@ -135,15 +140,15 @@ impl Account {
     fn from_file(name: String, path: PathBuf) -> Account {
         println!("Importing account `{}` from file...", &name);
 
-        // Import account's keypair file if exists and is valid, generate otherwise
+        // Import account's secret key file if exists and is valid, generate otherwise
         //
         match File::open(&path) {
             Ok(mut f) => {
-                let mut buf: [u8; 32] = [0; 32];
+                let mut buf: [u8; SECRET_KEY_LENGTH] = [0; SECRET_KEY_LENGTH];
                 match f.read(&mut buf) {
                     Ok(num) => {
-                        if num != 32 {
-                            panic!("Could not read 32 bytes from `{}`!", path.display());
+                        if num != SECRET_KEY_LENGTH {
+                            panic!("Could not read {} bytes from `{}`!", SECRET_KEY_LENGTH, path.display());
                         }
 
                         Account::from_bytes(name, &buf)
@@ -241,8 +246,16 @@ fn main() {
     }
 }
 
+
 fn handle_connection(mut stream: TcpStream) {
     let mut buffer = [0; 512];
     stream.read(&mut buffer).unwrap();
     println!("Request: {}", String::from_utf8_lossy(&buffer[..]));
+
+    let magic = b"TOYBLOCKCHAIN";
+    if buffer.starts_with(magic) {
+        println!("Protocol message!");
+    } else {
+        println!("Malformed message...");
+    }
 }

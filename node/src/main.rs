@@ -115,9 +115,9 @@ struct Account {
 }
 
 impl Account {
-    fn from_bytes(name: String, buf: &[u8; SECRET_KEY_LENGTH]) -> Account {
+    fn from_bytes(name: &String, buf: &[u8; SECRET_KEY_LENGTH]) -> Account {
         Account {
-            name: name,
+            name: name.clone(),
             secret: match SecretKey::from_bytes(buf) {
                 Ok(kp) => kp,
                 Err(_) => panic!("Secret key data is malformed!")
@@ -125,8 +125,8 @@ impl Account {
         }
     }
 
-    fn to_file(&self, path: PathBuf)  {
-        let mut f = File::create(&path).unwrap();
+    fn to_file(&self, path: &Path)  {
+        let mut f = File::create(path).unwrap();
         match f.write(&self.secret.to_bytes()) {
             Ok(num) => {
                 if num != SECRET_KEY_LENGTH {
@@ -137,12 +137,12 @@ impl Account {
         };
     }
 
-    fn from_file(name: String, path: PathBuf) -> Account {
+    fn from_file(name: &String, path: &Path) -> Account {
         println!("Importing account `{}` from file...", &name);
 
         // Import account's secret key file if exists and is valid, generate otherwise
         //
-        match File::open(&path) {
+        match File::open(path) {
             Ok(mut f) => {
                 let mut buf: [u8; SECRET_KEY_LENGTH] = [0; SECRET_KEY_LENGTH];
                 match f.read(&mut buf) {
@@ -163,7 +163,7 @@ impl Account {
 
                 let mut csprng: OsRng = OsRng::new().unwrap();
                 let acct = Account {
-                    name: name,
+                    name: name.clone(),
                     secret: SecretKey::generate(&mut csprng)
                 };
                 acct.to_file(path);
@@ -206,8 +206,8 @@ fn main() {
     // Open or generate new account
     //
     let account = Account::from_file(
-        args[2].clone(),
-        secret
+        &args[2],
+        &secret
     );
 
     println!("Using account `{}` with public key `{}`...",
@@ -215,21 +215,7 @@ fn main() {
         base64::encode(&account.public_key().to_bytes()[..])
     );
 
-    // Work buffer
-    //
-    let mut buf = Vec::new();
 
-    // Test output
-    //
-    let out = Output { amount: 879, creditor: account.public_key() };
-    out.serialize(&mut rmps::Serializer::new(&mut buf)).unwrap();
-    println!("Output serialized: {:?}", base64::encode(&buf));
-
-    // Test public key
-    //
-    account.public_key().serialize(&mut rmps::Serializer::new(&mut buf)).unwrap();
-    println!("Serialized public key: {:?}", base64::encode(&buf));
-    
     let listener: TcpListener;
     let mut port = 7878;
     loop {

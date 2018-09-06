@@ -20,6 +20,22 @@ use rand::OsRng;
 use serde::{Serialize};
 
 
+// Wrapping base conversion in a more convenient way
+//
+mod base58 {
+    extern crate rust_base58;
+    use self::rust_base58::{ToBase58, FromBase58};
+
+    pub fn encode<T: ?Sized + ToBase58 + AsRef<[u8]>>(input: &T) -> String {
+        input.to_base58()
+    }
+
+    pub fn decode<T :?Sized + FromBase58 + AsRef<[u8]>>(input: &T) -> Result<Vec<u8>, self::rust_base58::base58::FromBase58Error> {
+        input.from_base58()
+    }
+}
+
+
 // We use SHA-512 for most hashing purposes
 //
 const HASH_LENGTH: usize = 64;
@@ -213,6 +229,15 @@ fn main() {
     println!("Using account `{}` with public key `{}`...",
         account.name,
         base64::encode(&account.public_key().to_bytes()[..])
+    );
+    println!("Using account `{}` with public key `{}` ... (base58)",
+        account.name,
+        base58::encode(&account.public_key().to_bytes()[..])
+    );
+    let hello = "JxF12TrwXzT5jvT";
+    println!("Testing base58 decode, `{}` as a string is `{}`",
+        hello,
+        String::from_utf8(base58::decode(hello).unwrap()).unwrap()
     );
 
 

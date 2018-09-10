@@ -5,7 +5,6 @@ authors = ["aszkid <polgomezriquelme@gmail.com>"]
 
 [dependencies]
 rmp = "^0.8"
-ed25519-dalek = "^0.8"
 sha2 = "^0.7"
 rand = "^0.5"
 base64 = "^0.9"
@@ -15,3 +14,7 @@ rmp-serde = "^0.13"
 shrinkwraprs = "^0.2"
 rust-base58 = "^0.0.4"
 byteorder = "^1.0"
+
+[dependencies.ed25519-dalek]
+version = "^0.8"
+features = ["serde"]

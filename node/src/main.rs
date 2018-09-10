@@ -17,9 +17,10 @@ use std::time::Duration;
 use std::env;
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream, Ipv6Addr};
-use ed25519_dalek::{SECRET_KEY_LENGTH, PUBLIC_KEY_LENGTH, SecretKey, Signature};
+use ed25519_dalek::{SECRET_KEY_LENGTH, PUBLIC_KEY_LENGTH, PublicKey, SecretKey, Signature};
 use rand::OsRng;
 use serde::{Serialize, Deserialize};
+use serde::de::Error as SerdeError;
 use rmps::{Serializer, Deserializer};
 use byteorder::{ReadBytesExt, BigEndian, LittleEndian, NetworkEndian};
 
@@ -44,23 +45,7 @@ mod base58 {
 //
 const HASH_LENGTH: usize = 64;
 
-
-// Little hack to allow painless implementation of
-// serde's Serialize and Deserialize traits on ed25519_dalek's PublicKey
-//
-#[derive(Shrinkwrap)]
-struct PublicKey(ed25519_dalek::PublicKey);
-
-impl Serialize for PublicKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_bytes(&self.to_bytes())
-    }
-}
-
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct Output {
     // Amount of currency units to send
     //
@@ -83,7 +68,40 @@ impl Serialize for TxHash {
     }
 }
 
-#[derive(Serialize)]
+impl<'de> Deserialize<'de> for TxHash {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>
+    {
+        use serde::de::Visitor;
+        struct TxHashVisitor;
+
+        impl<'de> Visitor<'de> for TxHashVisitor {
+            type Value = TxHash;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a transaction hash as a 32-byte SHA-512 hash")
+            }
+
+            fn visit_bytes<E>(self, bytes: &[u8]) -> Result<TxHash, E>
+                where E: SerdeError
+            {
+                match bytes.len() {
+                    HASH_LENGTH => {
+                        let mut h: [u8; HASH_LENGTH] = [0; HASH_LENGTH];
+                        h.copy_from_slice(&bytes[..]);
+                        Ok(TxHash(h))
+                    },
+                    _ => Err(SerdeError::invalid_length(bytes.len(), &self))
+                }
+            }
+        }
+
+        deserializer.deserialize_bytes(TxHashVisitor)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 struct Input {
     // Hash of the referenced transaction
     //
@@ -93,7 +111,7 @@ struct Input {
     index: u8
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct Transaction {
     // Source public key
     //
@@ -193,7 +211,7 @@ impl Account {
     }
 
     fn public_key(&self) -> PublicKey {
-        PublicKey(ed25519_dalek::PublicKey::from_secret::<sha2::Sha512>(&self.secret))
+        ed25519_dalek::PublicKey::from_secret::<sha2::Sha512>(&self.secret)
     }
 
 }
@@ -301,6 +319,11 @@ struct Node {
 #[derive(Serialize, Deserialize)]
 struct MsgHandshake {
     nodes: Vec<Node>
+}
+
+#[derive(Serialize, Deserialize)]
+struct MsgShareTx {
+    txs: Vec<Transaction>
 }
 
 fn handle_message(t: u8, payload: &[u8]) {

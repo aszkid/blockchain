@@ -1,23 +1,27 @@
 extern crate rand;
 extern crate sha2;
 extern crate ed25519_dalek;
-extern crate base64;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde;
+extern crate rmp;
 extern crate rmp_serde as rmps;
 #[macro_use]
 extern crate shrinkwraprs;
+extern crate byteorder;
 
 use std::fs;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use std::env;
 use std::io::prelude::*;
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, Ipv6Addr};
 use ed25519_dalek::{SECRET_KEY_LENGTH, PUBLIC_KEY_LENGTH, SecretKey, Signature};
 use rand::OsRng;
-use serde::{Serialize};
+use serde::{Serialize, Deserialize};
+use rmps::{Serializer, Deserializer};
+use byteorder::{ReadBytesExt, BigEndian, LittleEndian, NetworkEndian};
 
 
 // Wrapping base conversion in a more convenient way
@@ -226,20 +230,10 @@ fn main() {
         &secret
     );
 
-    println!("Using account `{}` with public key `{}`...",
-        account.name,
-        base64::encode(&account.public_key().to_bytes()[..])
-    );
-    println!("Using account `{}` with public key `{}` ... (base58)",
+    println!("Using account `{}` with public key `{}` ...",
         account.name,
         base58::encode(&account.public_key().to_bytes()[..])
     );
-    let hello = "JxF12TrwXzT5jvT";
-    println!("Testing base58 decode, `{}` as a string is `{}`",
-        hello,
-        String::from_utf8(base58::decode(hello).unwrap()).unwrap()
-    );
-
 
     let listener: TcpListener;
     let mut port = 7878;
@@ -259,14 +253,65 @@ fn main() {
 
 
 fn handle_connection(mut stream: TcpStream) {
-    let mut buffer = [0; 512];
-    stream.read(&mut buffer).unwrap();
-    println!("Request: {}", String::from_utf8_lossy(&buffer[..]));
+    const VERSION: u8 = 1;
+    // Protocol message format v0.1
+    // "BLOCK" | 1 byte version | 1 byte msg. type | 4 bytes payload size | payload
 
-    let magic = b"TOYBLOCKCHAIN";
-    if buffer.starts_with(magic) {
-        println!("Protocol message!");
-    } else {
-        println!("Malformed message...");
+    const HEADER_SIZE: usize = 12;
+    let mut header: [u8; HEADER_SIZE] = [0; HEADER_SIZE];
+
+    const MAGIC_SIZE: usize = 5;
+    let mut magic: [u8; MAGIC_SIZE] = [0; MAGIC_SIZE];
+    stream.read_exact(&mut magic).unwrap();
+    if &magic[..] != b"BLOCK" {
+        println!("Message header is not `BLOCK`!");
+        return
+    }
+
+    let v = stream.read_u8().unwrap();
+    println!("Message refers to protocol version {}", v);
+    if v > VERSION {
+        println!("Incompatible versions!");
+        return
+    }
+
+    let t = stream.read_u8().unwrap();
+    println!("Message type is {}", t);
+
+    let sz = stream.read_u32::<NetworkEndian>().unwrap();
+    println!("Payload size is {}", sz);
+
+    const MAX_MSG_SIZE: usize = 1024;
+    if sz > MAX_MSG_SIZE as u32 {
+        println!("Message payload is too large ({} > {})", sz, MAX_MSG_SIZE);
+        return
+    }
+
+    let mut buffer = Vec::new();
+    stream.take(sz.into()).read_to_end(&mut buffer).unwrap();
+    handle_message(t, &buffer.as_slice());
+}
+
+#[derive(Serialize, Deserialize)]
+struct Node {
+    addr: Ipv6Addr,
+    port: u16
+}
+
+#[derive(Serialize, Deserialize)]
+struct MsgHandshake {
+    nodes: Vec<Node>
+}
+
+fn handle_message(t: u8, payload: &[u8]) {
+    println!("Handling message with payload of size {}", payload.len());
+
+    let mut de = Deserializer::new(payload);
+    if t == 1 {
+        // handshake
+        let handshake: MsgHandshake = Deserialize::deserialize(&mut de).unwrap();
+        for node in &handshake.nodes {
+            println!("Got info for node IP `{}`, port `{}`", node.addr, node.port);
+        }
     }
 }

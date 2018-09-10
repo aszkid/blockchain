@@ -122,12 +122,32 @@ struct Transaction {
     // List of tx outputs
     //
     outputs: Vec<Output>,
+    // Tx signature, by the debtor
+    //
+    signature: Signature
 }
 
 
 impl Transaction {
+
+    fn sign(&mut self, s: SecretKey) {
+        self.signature = s.expand::<sha2::Sha512>()
+          .sign::<sha2::Sha512>(
+            &self.hash().0,
+            &PublicKey::from_secret::<sha2::Sha512>(&s)
+        );
+    }
+
     fn hash(&self) -> TxHash {
         TxHash([0; HASH_LENGTH])
+    }
+
+    // Verify whether the transaction's signature is valid,
+    // i.e.
+    //   1. that the transaction has not been tampered during broadcast; and
+    //   2. that the debtor spends outputs credited to his public key
+    fn verify(&self) -> bool {
+        self.debtor.verify::<sha2::Sha512>(&self.hash().0, &self.signature).is_ok()
     }
 }
 

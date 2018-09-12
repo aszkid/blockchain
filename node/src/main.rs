@@ -7,8 +7,12 @@ extern crate serde;
 extern crate rmp;
 extern crate rmp_serde as rmps;
 #[macro_use]
-extern crate shrinkwraprs;
 extern crate byteorder;
+#[macro_use]
+extern crate shrinkwraprs;
+
+mod base58;
+mod protocol;
 
 use std::fs;
 use std::fs::File;
@@ -20,148 +24,8 @@ use std::net::{TcpListener, TcpStream, Ipv6Addr};
 use ed25519_dalek::{SECRET_KEY_LENGTH, PUBLIC_KEY_LENGTH, PublicKey, SecretKey, Signature};
 use rand::OsRng;
 use serde::{Serialize, Deserialize};
-use serde::de::Error as SerdeError;
 use rmps::{Serializer, Deserializer};
 use byteorder::{ReadBytesExt, BigEndian, LittleEndian, NetworkEndian};
-
-
-// Wrapping base conversion in a more convenient way
-//
-mod base58 {
-    extern crate rust_base58;
-    use self::rust_base58::{ToBase58, FromBase58};
-
-    pub fn encode<T: ?Sized + ToBase58 + AsRef<[u8]>>(input: &T) -> String {
-        input.to_base58()
-    }
-
-    pub fn decode<T :?Sized + FromBase58 + AsRef<[u8]>>(input: &T) -> Result<Vec<u8>, self::rust_base58::base58::FromBase58Error> {
-        input.from_base58()
-    }
-}
-
-
-// We use SHA-512 for most hashing purposes
-//
-const HASH_LENGTH: usize = 64;
-
-#[derive(Serialize, Deserialize)]
-struct Output {
-    // Amount of currency units to send
-    //
-    amount: u64,
-    // Destination public key
-    //
-    creditor: PublicKey,
-}
-
-
-#[derive(Shrinkwrap)]
-struct TxHash([u8; HASH_LENGTH]);
-
-impl Serialize for TxHash {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_bytes(&self.0)
-    }
-}
-
-impl<'de> Deserialize<'de> for TxHash {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>
-    {
-        use serde::de::Visitor;
-        struct TxHashVisitor;
-
-        impl<'de> Visitor<'de> for TxHashVisitor {
-            type Value = TxHash;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a transaction hash as a 32-byte SHA-512 hash")
-            }
-
-            fn visit_bytes<E>(self, bytes: &[u8]) -> Result<TxHash, E>
-                where E: SerdeError
-            {
-                match bytes.len() {
-                    HASH_LENGTH => {
-                        let mut h: [u8; HASH_LENGTH] = [0; HASH_LENGTH];
-                        h.copy_from_slice(&bytes[..]);
-                        Ok(TxHash(h))
-                    },
-                    _ => Err(SerdeError::invalid_length(bytes.len(), &self))
-                }
-            }
-        }
-
-        deserializer.deserialize_bytes(TxHashVisitor)
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct Input {
-    // Hash of the referenced transaction
-    //
-    tx: TxHash,
-    // Index of output referenced in the transaction
-    //
-    index: u8
-}
-
-#[derive(Serialize, Deserialize)]
-struct Transaction {
-    // Source public key
-    //
-    debtor: PublicKey,
-    // List of tx inputs
-    //
-    inputs: Vec<Input>,
-    // List of tx outputs
-    //
-    outputs: Vec<Output>,
-    // Tx signature, by the debtor
-    //
-    signature: Signature
-}
-
-
-impl Transaction {
-
-    fn sign(&mut self, s: SecretKey) {
-        self.signature = s.expand::<sha2::Sha512>()
-          .sign::<sha2::Sha512>(
-            &self.hash().0,
-            &PublicKey::from_secret::<sha2::Sha512>(&s)
-        );
-    }
-
-    fn hash(&self) -> TxHash {
-        TxHash([0; HASH_LENGTH])
-    }
-
-    // Verify whether the transaction's signature is valid,
-    // i.e.
-    //   1. that the transaction has not been tampered during broadcast; and
-    //   2. that the debtor spends outputs credited to his public key
-    fn verify(&self) -> bool {
-        self.debtor.verify::<sha2::Sha512>(&self.hash().0, &self.signature).is_ok()
-    }
-}
-
-struct Block {
-    // Hash of the previous block
-    //
-    prev_hash: TxHash,
-    // Nonce used to verify signature
-    //
-    nonce: u64,
-    // Signature
-    //
-    signature: Signature
-}
 
 
 // Owned account; not the same thing as a random
@@ -330,21 +194,7 @@ fn handle_connection(mut stream: TcpStream) {
     handle_message(t, &buffer.as_slice());
 }
 
-#[derive(Serialize, Deserialize)]
-struct Node {
-    addr: Ipv6Addr,
-    port: u16
-}
 
-#[derive(Serialize, Deserialize)]
-struct MsgHandshake {
-    nodes: Vec<Node>
-}
-
-#[derive(Serialize, Deserialize)]
-struct MsgShareTx {
-    txs: Vec<Transaction>
-}
 
 fn handle_message(t: u8, payload: &[u8]) {
     println!("Handling message with payload of size {}", payload.len());
@@ -352,7 +202,7 @@ fn handle_message(t: u8, payload: &[u8]) {
     let mut de = Deserializer::new(payload);
     if t == 1 {
         // handshake
-        let handshake: MsgHandshake = Deserialize::deserialize(&mut de).unwrap();
+        let handshake: protocol::MsgHandshake = Deserialize::deserialize(&mut de).unwrap();
         for node in &handshake.nodes {
             println!("Got info for node IP `{}`, port `{}`", node.addr, node.port);
         }

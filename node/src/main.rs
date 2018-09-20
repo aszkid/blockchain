@@ -1,18 +1,16 @@
 extern crate rand;
 extern crate sha2;
 extern crate ed25519_dalek;
-#[macro_use]
-extern crate serde_derive;
+#[macro_use] extern crate serde_derive;
 extern crate serde;
 extern crate rmp;
 extern crate rmp_serde as rmps;
-#[macro_use]
-extern crate byteorder;
-#[macro_use]
-extern crate shrinkwraprs;
+#[macro_use] extern crate byteorder;
+#[macro_use] extern crate shrinkwraprs;
 
-mod base58;
-mod protocol;
+// declare crate-level modules
+pub mod base58;
+pub mod protocol;
 
 use std::fs;
 use std::fs::File;
@@ -200,11 +198,14 @@ fn handle_message(t: u8, payload: &[u8]) {
     println!("Handling message with payload of size {}", payload.len());
 
     let mut de = Deserializer::new(payload);
-    if t == 1 {
-        // handshake
-        let handshake: protocol::MsgHandshake = Deserialize::deserialize(&mut de).unwrap();
-        for node in &handshake.nodes {
-            println!("Got info for node IP `{}`, port `{}`", node.addr, node.port);
-        }
-    }
+    match t {
+        0 => {
+            // handshake
+            let handshake: protocol::MsgHandshake = Deserialize::deserialize(&mut de).unwrap();
+            for node in &handshake.nodes {
+                println!("Got info for node IP `{}`, port `{}`", node.addr, node.port);
+            }
+        },
+        _ => println!("Unrecognized message type {}", t)
+    };
 }

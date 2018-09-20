@@ -1,5 +1,7 @@
+use std::io::prelude::*;
 use serde::{Serialize, Deserialize};
 use serde::{Serializer, Deserializer};
+use rmps::{Serializer as MPSerializer, Deserializer as MPDeserializer};
 use serde::de::Error as SerdeError;
 use std::net::Ipv6Addr;
 use ed25519_dalek::{PublicKey, Signature, SecretKey, Keypair};
@@ -7,6 +9,7 @@ use sha2::{Sha256, Sha512, Digest};
 use base58;
 use std::fmt;
 use byteorder::{BigEndian, WriteBytesExt};
+use ipnet::IpNet;
 
 /// We use SHA-256 for most hashing purposes; 32-byte output
 pub const HASH_LENGTH: usize = 32;
@@ -231,7 +234,7 @@ pub struct Block {
 
 #[derive(Serialize, Deserialize)]
 pub struct Node {
-    pub addr: Ipv6Addr,
+    pub addr: IpNet,
     pub port: u16
 }
 
@@ -243,4 +246,25 @@ pub struct MsgHandshake {
 #[derive(Serialize, Deserialize)]
 pub struct MsgShareTx {
     pub txs: Vec<Transaction>
+}
+
+
+pub fn handle_message(msg_version: u32, msg_type: u32, payload: &[u8]) {
+    println!("Handling message with payload of size {}", payload.len());
+
+    if msg_version != 1 {
+        panic!("Only version 1 is supported (the unstable one)! Aborting")
+    }
+
+    let mut de = MPDeserializer::new(payload);
+    match msg_type {
+        0 => {
+            // handshake message
+            let handshake: MsgHandshake = Deserialize::deserialize(&mut de).unwrap();
+            for node in &handshake.nodes {
+                println!("Got info for node IP `{}`, port `{}`", node.addr, node.port);
+            }
+        },
+        _ => println!("Unrecognized message type {}", msg_type)
+    };
 }

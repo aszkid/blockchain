@@ -10,7 +10,7 @@ rand = "^0.5"
 base64 = "^0.9"
 serde = "^1.0"
 serde_derive = "^1.0"
-rmp-serde = "^0.13"
+#rmp-serde = "^0.13"
 shrinkwraprs = "^0.2"
 rust-base58 = "^0.0.4"
 byteorder = "^1.0"
@@ -18,3 +18,11 @@ byteorder = "^1.0"
 [dependencies.ed25519-dalek]
 version = "^0.8"
 features = ["serde"]
+
+[dependencies.ipnet]
+version = "^2.0"
+features = ["serde"]
+
+[dependencies.rmp-serde]
+git = "https://github.com/aszkid/msgpack-rust"
+branch = "rmps-human_readable"

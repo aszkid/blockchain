@@ -7,8 +7,9 @@ extern crate rmp;
 extern crate rmp_serde as rmps;
 #[macro_use] extern crate byteorder;
 #[macro_use] extern crate shrinkwraprs;
+extern crate ipnet;
 
-// declare crate-level modules
+// Crate-level modules
 pub mod base58;
 pub mod protocol;
 
@@ -18,11 +19,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::env;
 use std::io::prelude::*;
-use std::net::{TcpListener, TcpStream, Ipv6Addr};
+use std::net::{TcpListener, TcpStream};
 use ed25519_dalek::{SECRET_KEY_LENGTH, PUBLIC_KEY_LENGTH, PublicKey, SecretKey, Signature};
 use rand::OsRng;
-use serde::{Serialize, Deserialize};
-use rmps::{Serializer, Deserializer};
 use byteorder::{ReadBytesExt, BigEndian, LittleEndian, NetworkEndian};
 
 
@@ -153,12 +152,9 @@ fn main() {
 
 
 fn handle_connection(mut stream: TcpStream) {
-    const VERSION: u8 = 1;
-    // Protocol message format v0.1
-    // "BLOCK" | 1 byte version | 1 byte msg. type | 4 bytes payload size | payload
-
-    const HEADER_SIZE: usize = 12;
-    let mut header: [u8; HEADER_SIZE] = [0; HEADER_SIZE];
+    // Protocol message format:
+    // "BLOCK" | 4 byte version | 4 byte msg. type | 4 bytes payload size | payload
+    // Message payload is MessagePack-encoded
 
     const MAGIC_SIZE: usize = 5;
     let mut magic: [u8; MAGIC_SIZE] = [0; MAGIC_SIZE];
@@ -168,44 +164,19 @@ fn handle_connection(mut stream: TcpStream) {
         return
     }
 
-    let v = stream.read_u8().unwrap();
+    // We don't really take versions seriously for now -- but just for the sake of it,
+    // having this field from the very start gives us margin for the future
+    let v = stream.read_u32::<NetworkEndian>().unwrap();
     println!("Message refers to protocol version {}", v);
-    if v > VERSION {
-        println!("Incompatible versions!");
-        return
-    }
 
-    let t = stream.read_u8().unwrap();
+    let t = stream.read_u32::<NetworkEndian>().unwrap();
     println!("Message type is {}", t);
 
     let sz = stream.read_u32::<NetworkEndian>().unwrap();
     println!("Payload size is {}", sz);
 
-    const MAX_MSG_SIZE: usize = 1024;
-    if sz > MAX_MSG_SIZE as u32 {
-        println!("Message payload is too large ({} > {})", sz, MAX_MSG_SIZE);
-        return
-    }
-
     let mut buffer = Vec::new();
     stream.take(sz.into()).read_to_end(&mut buffer).unwrap();
-    handle_message(t, &buffer.as_slice());
+    protocol::handle_message(v, t, &buffer.as_slice());
 }
 
-
-
-fn handle_message(t: u8, payload: &[u8]) {
-    println!("Handling message with payload of size {}", payload.len());
-
-    let mut de = Deserializer::new(payload);
-    match t {
-        0 => {
-            // handshake
-            let handshake: protocol::MsgHandshake = Deserialize::deserialize(&mut de).unwrap();
-            for node in &handshake.nodes {
-                println!("Got info for node IP `{}`, port `{}`", node.addr, node.port);
-            }
-        },
-        _ => println!("Unrecognized message type {}", t)
-    };
-}

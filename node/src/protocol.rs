@@ -22,7 +22,7 @@ impl Address {
 
     /// Encode in base58
     pub fn display(&self) -> String {
-        base58::encode(&(self.0)[..])
+        base58::encode(&self.as_bytes()[..])
     }
 
     /// Load from hash (raw bytes)
@@ -32,6 +32,7 @@ impl Address {
         addr
     }
 
+    #[inline]
     pub fn as_bytes<'a>(&'a self) -> &'a [u8; HASH_LENGTH] {
         &self.0
     }
@@ -174,17 +175,6 @@ impl Transaction {
             wtr.extend_from_slice(outp.creditor.as_bytes());
         }
 
-
-        /*for inp in &self.inputs {
-            hasher.input(&inp.tx[..]);
-            hasher.input(&vec!(inp.index));
-        }
-        
-        for outp in &self.outputs {
-            hasher.input(&vec!(outp.amount));
-            hasher.input(outp.creditor);
-        }*/
-
         TxHash::from_bytes(&hasher.result())
     }
 
@@ -199,10 +189,7 @@ impl Transaction {
                 outputs: self.outputs.clone()
             };
             
-            let simplified_hash = t.hash();
-            input.signature = kp.sign::<Sha512>(simplified_hash.as_bytes());
-
-            self.outputs = t.outputs;
+            input.signature = kp.sign::<Sha512>(t.hash().as_bytes());
         }
     }
 

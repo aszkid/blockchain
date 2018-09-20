@@ -16,6 +16,7 @@ pub const HASH_LENGTH: usize = 32;
 pub struct Address([u8; HASH_LENGTH]);
 
 impl Address {
+    /// Zero-initialize an address
     pub fn new() -> Address {
         Address([0; HASH_LENGTH])
     }
@@ -69,6 +70,7 @@ impl TxHash {
         hash
     }
 
+    #[inline]
     pub fn as_bytes<'a>(&'a self) -> &'a [u8; HASH_LENGTH] {
         &self.0
     }
@@ -154,27 +156,28 @@ impl Transaction {
         }
     }
 
-    pub fn attach_input(&mut self, inp: Input) {
-        self.inputs.push(inp);
-    }
-
     /// Hash using SHA-256
     pub fn hash(&self) -> TxHash {
-        let mut hasher = Sha256::default();
-
         let mut wtr = vec![];
+
+        // Append debtor's public key
         wtr.extend_from_slice(self.debtor.as_bytes());
         
+        // Append tx_hash + tx_index for every input
         for inp in &self.inputs {
             wtr.extend_from_slice(inp.tx.as_bytes());
             wtr.write_u8(inp.index).unwrap();
         }
 
+        // Append amount + creditor's address for every output
         for outp in &self.outputs {
             wtr.write_u64::<BigEndian>(outp.amount).unwrap();
             wtr.extend_from_slice(outp.creditor.as_bytes());
         }
 
+        // Hash resulting byte array
+        let mut hasher = Sha256::default();
+        hasher.input(&wtr);
         TxHash::from_bytes(&hasher.result())
     }
 
@@ -193,10 +196,22 @@ impl Transaction {
         }
     }
 
-    /// Verify whether the transaction is valid:
-    /// for each input, check whether the 
+    /// Verify whether the transaction is valid
     pub fn is_valid(&self) -> bool {
-        //self.debtor.verify::<::sha2::Sha512>(&self.hash().0, &self.signature).is_ok()
+        // c.f. https://en.bitcoin.it/wiki/Protocol_rules#.22tx.22_messages
+
+        // 1) Check input / output lengths
+        if (self.inputs.is_empty() || self.outputs.is_empty()) {
+            return false;
+        }
+
+        // 2) Output <= Input (since Output - Input = Fee)
+        let out_total = self.outputs.iter().fold(0, |sum, outp| sum + outp.amount);
+
+        // etc
+
+        // TODO: this should *not* be the Transaction's job
+
         true
     }
 }

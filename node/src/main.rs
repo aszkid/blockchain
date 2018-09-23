@@ -8,8 +8,15 @@ extern crate rmp_serde as rmps;
 #[macro_use] extern crate byteorder;
 #[macro_use] extern crate shrinkwraprs;
 extern crate ipnet;
+extern crate jsonrpc_minihttp_server;
+extern crate syn;
+#[macro_use] extern crate quote;
+
+// Local crate (hack to allow procedural macros)
+#[macro_use] extern crate task_proc;
 
 // Crate-level modules
+pub mod task;
 pub mod base58;
 pub mod protocol;
 
@@ -20,6 +27,7 @@ use std::time::Duration;
 use std::env;
 use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
+use std::thread;
 use ed25519_dalek::{SECRET_KEY_LENGTH, PUBLIC_KEY_LENGTH, PublicKey, SecretKey, Signature};
 use rand::OsRng;
 use byteorder::{ReadBytesExt, BigEndian, LittleEndian, NetworkEndian};
@@ -134,6 +142,26 @@ fn main() {
         base58::encode(&account.public_key().to_bytes()[..])
     );
 
+    // Start local JSON-RPC server (user-to-node comm)
+    use jsonrpc_minihttp_server::*;
+    use jsonrpc_minihttp_server::jsonrpc_core::*;
+
+    let mut io = IoHandler::default();
+    io.add_method("say_hello", |_| {
+        Ok(Value::String("hello".into()))
+    });
+
+    /*for msg_t in Task::enum_iter() {
+        io.add_method(msg_t.method_name, msg_t.method_handler);
+    }*/
+
+    let server = ServerBuilder::new(io)
+        .start_http(&"127.0.0.1:3030".parse().unwrap())
+        .expect("Unable to start RPC server");
+
+    server.wait().unwrap();
+
+    // Start good-old TCP server (node-to-node comm)
     let listener: TcpListener;
     let mut port = 7878;
     loop {

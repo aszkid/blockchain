@@ -1,3 +1,5 @@
+#![feature(plugin)]
+#![plugin(rocket_codegen)]
 extern crate rand;
 extern crate sha2;
 extern crate ed25519_dalek;
@@ -8,15 +10,10 @@ extern crate rmp_serde as rmps;
 #[macro_use] extern crate byteorder;
 #[macro_use] extern crate shrinkwraprs;
 extern crate ipnet;
-extern crate jsonrpc_minihttp_server;
-extern crate syn;
-#[macro_use] extern crate quote;
-
-// Local crate (hack to allow procedural macros)
-#[macro_use] extern crate task_proc;
 
 // Crate-level modules
-pub mod task;
+pub mod method;
+pub mod rpc;
 pub mod base58;
 pub mod protocol;
 
@@ -143,23 +140,10 @@ fn main() {
     );
 
     // Start local JSON-RPC server (user-to-node comm)
-    use jsonrpc_minihttp_server::*;
-    use jsonrpc_minihttp_server::jsonrpc_core::*;
+    let mut rpc = rpc::Server::new();
+    rpc.add_method(method::DumpPrivKey);
+    rpc.run();
 
-    let mut io = IoHandler::default();
-    io.add_method("say_hello", |_| {
-        Ok(Value::String("hello".into()))
-    });
-
-    /*for msg_t in Task::enum_iter() {
-        io.add_method(msg_t.method_name, msg_t.method_handler);
-    }*/
-
-    let server = ServerBuilder::new(io)
-        .start_http(&"127.0.0.1:3030".parse().unwrap())
-        .expect("Unable to start RPC server");
-
-    server.wait().unwrap();
 
     // Start good-old TCP server (node-to-node comm)
     let listener: TcpListener;

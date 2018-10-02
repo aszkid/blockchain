@@ -14,7 +14,6 @@ serde_derive = "^1.0"
 shrinkwraprs = "^0.2"
 rust-base58 = "^0.0.4"
 byteorder = "^1.0"
-rouille = "^2.2"
 
 [dependencies.ed25519-dalek]
 version = "^0.8"
